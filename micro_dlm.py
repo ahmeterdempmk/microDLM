@@ -163,7 +163,7 @@ m_buf = [0.0] * len(params)
 v_buf = [0.0] * len(params)
 
 
-num_steps = 1000
+num_steps = 5000
 print("training diffusion language model...")
 for step in range(num_steps):
 

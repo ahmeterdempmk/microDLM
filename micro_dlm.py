@@ -75,10 +75,10 @@ class Value:
 
 n_layer = 1     # depth of the transformer
 n_embd = 16     # width of the network (embedding dimension)
-block_size = 32  # maximum sequence length
+block_size = 16  # maximum sequence length (names are max 15 chars)
 n_head = 4      # number of attention heads
 head_dim = n_embd // n_head
-matrix = lambda nout, nin, std=0.08: [[Value(random.gauss(0, std)) for _ in range(nin)] for _ in range(nout)]
+matrix = lambda nout, nin, std=0.15: [[Value(random.gauss(0, std)) for _ in range(nin)] for _ in range(nout)]
 state_dict = {'wte': matrix(vocab_size, n_embd), 'wpe': matrix(block_size, n_embd), 'lm_head': matrix(vocab_size, n_embd)}
 for i in range(n_layer):
     state_dict[f'layer{i}.attn_wq'] = matrix(n_embd, n_embd)
@@ -115,14 +115,14 @@ def mask_predictor(token_ids):
         tok_emb = state_dict['wte'][tok]
         pos_emb = state_dict['wpe'][pos]
         x = [t + p for t, p in zip(tok_emb, pos_emb)]
-        x = rmsnorm(x)
         xs.append(x)
 
     for li in range(n_layer):
         # Compute Q, K, V for ALL positions at once
-        qs = [linear(rmsnorm(xs[i]), state_dict[f'layer{li}.attn_wq']) for i in range(L)]
-        ks = [linear(rmsnorm(xs[i]), state_dict[f'layer{li}.attn_wk']) for i in range(L)]
-        vs = [linear(rmsnorm(xs[i]), state_dict[f'layer{li}.attn_wv']) for i in range(L)]
+        xs_normed = [rmsnorm(xs[i]) for i in range(L)]
+        qs = [linear(xs_normed[i], state_dict[f'layer{li}.attn_wq']) for i in range(L)]
+        ks = [linear(xs_normed[i], state_dict[f'layer{li}.attn_wk']) for i in range(L)]
+        vs = [linear(xs_normed[i], state_dict[f'layer{li}.attn_wv']) for i in range(L)]
 
         new_xs = []
         for i in range(L):
@@ -163,7 +163,8 @@ m_buf = [0.0] * len(params)
 v_buf = [0.0] * len(params)
 
 
-num_steps = 5000
+num_steps = 3000
+loss_history = []
 print("training diffusion language model...")
 for step in range(num_steps):
 
@@ -218,13 +219,60 @@ for step in range(num_steps):
         p.data -= lr_t * m_hat / (v_hat ** 0.5 + eps_adam)
         p.grad = 0
 
+    loss_history.append(loss.data)
     print(f"step {step+1:4d} / {num_steps:4d} | loss {loss.data:.4f} | t={t:.2f} | masked {len(masked_positions)}/{L}", end='\r')
 
 
-# iterative unmasking 
-print("\n\n--- inference (diffusion-generated names) ---")
+# iterative unmasking
 num_steps_inference = 16
-temperature = 0.8
+temperature = 0.5
+
+# === EVALUATION (do not modify this block) ===
+import time as _time
+# 1. final_loss: average loss over the last 200 training steps (or all steps if < 200)
+#    (you must accumulate these during training into a list called `loss_history`)
+_recent = loss_history[-200:]
+final_loss = sum(_recent) / len(_recent)
+
+# 2. sample_quality: fraction of generated names that are "valid"
+#    valid = all characters are lowercase a-z, length between 2 and 15
+_n_samples = 50
+_valid = 0
+for _ in range(_n_samples):
+    gen_length = random.randint(3, 8)
+    tokens = [BOS] + [MASK] * gen_length + [BOS]
+    L = len(tokens)
+    for step in range(num_steps_inference):
+        all_logits = mask_predictor(tokens)
+        predictions = []
+        for i in range(L):
+            if tokens[i] != MASK:
+                continue
+            scaled_logits = [val / temperature for val in all_logits[i]]
+            probs = softmax(scaled_logits)
+            prob_data = [p.data for p in probs]
+            predicted = random.choices(range(vocab_size), weights=prob_data)[0]
+            confidence = prob_data[predicted]
+            predictions.append((i, predicted, confidence))
+        if not predictions:
+            break
+        for pos, tok, _ in predictions:
+            tokens[pos] = tok
+        frac_to_keep = (step + 1) / num_steps_inference
+        n_to_keep = max(1, int(frac_to_keep * len(predictions)))
+        if step < num_steps_inference - 1:
+            predictions.sort(key=lambda x: x[2], reverse=True)
+            to_remask = predictions[n_to_keep:]
+            for pos, _, _ in to_remask:
+                tokens[pos] = MASK
+    name = ''.join(uchars[t] for t in tokens[1:-1] if t < len(uchars))
+    if 2 <= len(name) <= 15 and name.isalpha() and name.islower():
+        _valid += 1
+sample_quality = _valid / _n_samples
+print(f"EVAL: final_loss={final_loss:.6f} sample_quality={sample_quality:.4f}")
+# === END EVALUATION ===
+
+print("\n\n--- inference (diffusion-generated names) ---")
 
 for sample_idx in range(20):
     # Variable generation length matching typical name lengths

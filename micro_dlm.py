@@ -115,7 +115,6 @@ def mask_predictor(token_ids):
         tok_emb = state_dict['wte'][tok]
         pos_emb = state_dict['wpe'][pos]
         x = [t + p for t, p in zip(tok_emb, pos_emb)]
-        x = rmsnorm(x)
         xs.append(x)
 
     for li in range(n_layer):

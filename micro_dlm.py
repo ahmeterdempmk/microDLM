@@ -225,7 +225,7 @@ for step in range(num_steps):
 
 # iterative unmasking
 num_steps_inference = 16
-temperature = 0.8
+temperature = 0.5
 
 # === EVALUATION (do not modify this block) ===
 import time as _time

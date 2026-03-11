@@ -119,9 +119,10 @@ def mask_predictor(token_ids):
 
     for li in range(n_layer):
         # Compute Q, K, V for ALL positions at once
-        qs = [linear(rmsnorm(xs[i]), state_dict[f'layer{li}.attn_wq']) for i in range(L)]
-        ks = [linear(rmsnorm(xs[i]), state_dict[f'layer{li}.attn_wk']) for i in range(L)]
-        vs = [linear(rmsnorm(xs[i]), state_dict[f'layer{li}.attn_wv']) for i in range(L)]
+        xs_normed = [rmsnorm(xs[i]) for i in range(L)]
+        qs = [linear(xs_normed[i], state_dict[f'layer{li}.attn_wq']) for i in range(L)]
+        ks = [linear(xs_normed[i], state_dict[f'layer{li}.attn_wk']) for i in range(L)]
+        vs = [linear(xs_normed[i], state_dict[f'layer{li}.attn_wv']) for i in range(L)]
 
         new_xs = []
         for i in range(L):
